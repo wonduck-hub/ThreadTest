@@ -55,13 +55,16 @@ void tas_lock(Lock* lock) {
 }
 
 void ttas_lock(Lock* lock) {
-	int expected; 
 	while (true) {
-		expected = 0; 
-		if (atomic_compare_exchange_weak(&lock->state, &expected, 1)) { 
-			break; 
-		} // 잠금 실패 시 짧은 대기 
-		thrd_yield(); 
+		// 첫 번째 테스트: 상태가 0인지 확인
+		if (atomic_load(&lock->state) == 0) {
+			// 두 번째 테스트: 비교 후 교환 시도
+			int expected = 0;
+			if (atomic_compare_exchange_weak(&lock->state, &expected, 1)) {
+				break; // 락 획득 성공
+			}
+		}
+		// 락 획득 실패 시 반복 시도
 	}
 }
 
