@@ -51,7 +51,13 @@ void init_lock(Lock* lock) {
 // atomic_exchange : 변수의 값을 새 값으로 설정하고 이전 값을 원자적으로 반환(단일 교환 연산이 필요한 경우 사용한다)
 
 void tas_lock(Lock* lock) {
-	while (atomic_exchange(&lock->state, 1)) {}
+	int expected = 0;
+	while (true) {
+		expected = 0; // 기대 값을 초기화
+		if (atomic_compare_exchange_weak(&lock->state, &expected, 1)) {
+			break; // 락 획득 성공
+		}
+	}
 }
 
 void ttas_lock(Lock* lock) {
