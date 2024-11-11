@@ -1,9 +1,8 @@
-﻿#include <stdio.h>
+#include <stdio.h>
 #include <stdatomic.h>
 #include <stdbool.h>
 #include <time.h>
 #include <threads.h>
-#include <windows.h>
 
 #define TWO (2)
 #define FOUR (4)
@@ -16,18 +15,37 @@ unsigned long long int sum = 0;
 const int MIN_NUM = 1000000;
 const int MAX_NUM = 5000000;
 
-typedef struct Lock {
+typedef struct AtomicLock {
 	atomic_int state;
-} Lock;
+} AtomicLock;
 
-typedef struct ThreadData { 
-	Lock* lock; 
+typedef struct NoAtomicLock {
+    int state;
+} NoAtomicLock;
+
+typedef struct AtomicThreadData { 
+	AtomicLock* lock; 
 	int start; 
 	int end; 
-} ThreadData;
+} AtomicThreadData;
 
-ThreadData init_ThreadData(Lock* l, int start, int end) {
-	ThreadData d;
+typedef struct NoAtomicThreadData {
+    NoAtomicLock* lock;
+    int start;
+    int end;
+} NoAtomicThreadData;
+
+AtomicThreadData init_atomic_thread_data(AtomicLock* l, int start, int end) {
+	AtomicThreadData d;
+	d.lock = l;
+	d.start = start;
+	d.end = end;
+
+	return d;
+}
+
+NoAtomicThreadData init_no_atomic_thread_data(NoAtomicLock* l, int start, int end) {
+	NoAtomicThreadData d;
 	d.lock = l;
 	d.start = start;
 	d.end = end;
@@ -36,8 +54,12 @@ ThreadData init_ThreadData(Lock* l, int start, int end) {
 }
 
 // Initialize the TASLock
-void init_lock(Lock* lock) {
+void init_atomic_lock(AtomicLock* lock) {
 	atomic_init(&lock->state, 0);
+}
+
+void init_no_atomic_lock(NoAtomicLock* lock) {
+    lock->state = 0;
 }
 
 // Acquire the TASLock using atomic_fetch_and_add
@@ -50,7 +72,16 @@ void init_lock(Lock* lock) {
 // 이 함수는 실패할 가능성이 있기 때문에 반복적인 시도에 적합합니다
 // atomic_exchange : 변수의 값을 새 값으로 설정하고 이전 값을 원자적으로 반환(단일 교환 연산이 필요한 경우 사용한다)
 
-void tas_lock(Lock* lock) {
+void no_atomic_lock(NoAtomicLock* lock) {
+    while (true) {
+		if (lock->state == 0) {
+            lock->state = 1;
+			break; // 락 획득 성공
+		}
+	}
+}
+
+void tas_lock(AtomicLock* lock) {
 	int expected = 0;
 	while (true) {
 		expected = 0; // 기대 값을 초기화
@@ -60,7 +91,7 @@ void tas_lock(Lock* lock) {
 	}
 }
 
-void ttas_lock(Lock* lock) {
+void ttas_lock(AtomicLock* lock) {
 	while (true) {
 		// 첫 번째 테스트: 상태가 0인지 확인
 		if (atomic_load(&lock->state) == 0) {
@@ -74,7 +105,8 @@ void ttas_lock(Lock* lock) {
 	}
 }
 
-void back_off_lock(Lock* lock) {
+void back_off_lock(AtomicLock* lock) {
+    int backoff = 20; // 초기 백오프 시간 (밀리초 단위)
 	while (true) {
 		// 첫 번째 테스트: 상태가 0인지 확인
 		if (atomic_load(&lock->state) == 0) {
@@ -85,50 +117,404 @@ void back_off_lock(Lock* lock) {
 			}
 		}
 		// 락 획득 실패 후 일정 시간 대기
-		Sleep(1);
+		// 락 획득 실패 후 일정 시간 대기 (지수 백오프)
+		struct timespec ts;
+		ts.tv_sec = backoff / 1000;
+		ts.tv_nsec = (backoff % 1000) * 1000000;
+		nanosleep(&ts, NULL);
+		backoff *= 2; // 백오프 시간 두 배로 증가
+		if (backoff > 1000) { // 최대 백오프 시간 제한 (1초)
+			backoff = 1000;
+		}
 	}
 }
 
 // Release the TASLock
-void unlock(Lock* lock) {
+void atomic_unlock(AtomicLock* lock) {
 	atomic_store(&lock->state, 0);
 }
 
+void no_atomic_unlock(NoAtomicLock* lock) {
+    lock->state = 0;
+}
+
 // Thread function
+int no_lock_add(void* arg) {
+    AtomicThreadData* data = (AtomicThreadData*)arg;
+    for (int i = data->start; i <= data->end; ++i) {
+        sum += i;
+    }
+}
+
+int spin_lock_add(void* arg) {
+    NoAtomicThreadData* data = (NoAtomicThreadData*)arg;
+    for (int i = data->start; i <= data->end; ++i) {
+        no_atomic_lock(data->lock);
+        sum += i;
+        no_atomic_unlock(data->lock);
+    }
+}
+
 int tas_add(void* arg) {
-	ThreadData* data = (ThreadData*)arg;
+	AtomicThreadData* data = (AtomicThreadData*)arg;
 
 	for (int i = data->start; i <= data->end; ++i) { 
 		tas_lock(data->lock);
 		sum += i; 
-		unlock(data->lock);
+		atomic_unlock(data->lock);
 	} 
 
 	return 0;
 }
 
 int ttas_add(void* arg) {
-	ThreadData* data = (ThreadData*)arg;
+	AtomicThreadData* data = (AtomicThreadData*)arg;
 
 	for (int i = data->start; i <= data->end; ++i) {
 		ttas_lock(data->lock);
 		sum += i;
-		unlock(data->lock);
+		atomic_unlock(data->lock);
 	}
 
 	return 0;
 }
 
 int back_off_add(void* arg) {
-	ThreadData* data = (ThreadData*)arg;
+	AtomicThreadData* data = (AtomicThreadData*)arg;
 
 	for (int i = data->start; i <= data->end; ++i) {
 		back_off_lock(data->lock);
 		sum += i;
-		unlock(data->lock);
+		atomic_unlock(data->lock);
 	}
 
 	return 0;
+}
+
+void no_lock_test() {
+	// 2개의 스레드를 사용한 TASLock 테스트
+	clock_t start;
+	clock_t end;
+	thrd_t threads[SIXTYFOUR];
+	AtomicLock lock;
+	init_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	AtomicThreadData data[SIXTYFOUR];
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / TWO);
+	for (int i = 1; i < TWO; ++i) {
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / TWO * i) + 1, 1000000 + (4000000 / TWO * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < TWO; ++i) {
+		if (thrd_create(&threads[i], no_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < TWO; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", TWO);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
+
+	// 4개의 스레드를 사용한 TASLock 테스트
+	init_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / FOUR);
+	for (int i = 1; i < FOUR; ++i) {
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / FOUR * i) + 1, 1000000 + (4000000 / FOUR * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < FOUR; ++i) {
+		if (thrd_create(&threads[i], no_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < FOUR; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", FOUR);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
+
+	// 8개의 스레드를 사용한 TASLock 테스트
+	init_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / EIGHT);
+	for (int i = 1; i < EIGHT; ++i) {
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / EIGHT * i) + 1, 1000000 + (4000000 / EIGHT * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < EIGHT; ++i) {
+		if (thrd_create(&threads[i], no_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < EIGHT; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", EIGHT);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
+
+	// 16개의 스레드를 사용한 TASLock 테스트
+	init_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / SIXTEEN);
+	for (int i = 1; i < SIXTEEN; ++i) {
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / SIXTEEN * i) + 1, 1000000 + (4000000 / SIXTEEN * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < SIXTEEN; ++i) {
+		if (thrd_create(&threads[i], no_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < SIXTEEN; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", SIXTEEN);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
+
+	// 32개의 스레드를 사용한 TASLock 테스트
+	init_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / THIRTYTWO);
+	for (int i = 1; i < THIRTYTWO; ++i) {
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / THIRTYTWO * i) + 1, 1000000 + (4000000 / THIRTYTWO * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < THIRTYTWO; ++i) {
+		if (thrd_create(&threads[i], no_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < THIRTYTWO; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", THIRTYTWO);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
+
+	// 64개의 스레드를 사용한 TASLock 테스트
+	init_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / SIXTYFOUR);
+	for (int i = 1; i < SIXTYFOUR; ++i) {
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / SIXTYFOUR * i) + 1, 1000000 + (4000000 / SIXTYFOUR * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < SIXTYFOUR; ++i) {
+		if (thrd_create(&threads[i], no_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < SIXTYFOUR; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", SIXTYFOUR);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
+}
+
+void spin_lock_test() {
+    // 2개의 스레드를 사용한 TASLock 테스트
+	clock_t start;
+	clock_t end;
+	thrd_t threads[SIXTYFOUR];
+	NoAtomicLock lock;
+	init_no_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	NoAtomicThreadData data[SIXTYFOUR];
+	data[0] = init_no_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / TWO);
+	for (int i = 1; i < TWO; ++i) {
+		data[i] = init_no_atomic_thread_data(&lock, 1000000 + (4000000 / TWO * i) + 1, 1000000 + (4000000 / TWO * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < TWO; ++i) {
+		if (thrd_create(&threads[i], spin_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < TWO; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", TWO);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
+
+	// 4개의 스레드를 사용한 TASLock 테스트
+	init_no_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	data[0] = init_no_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / FOUR);
+	for (int i = 1; i < FOUR; ++i) {
+		data[i] = init_no_atomic_thread_data(&lock, 1000000 + (4000000 / FOUR * i) + 1, 1000000 + (4000000 / FOUR * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < FOUR; ++i) {
+		if (thrd_create(&threads[i], spin_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < FOUR; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", FOUR);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
+
+	// 8개의 스레드를 사용한 TASLock 테스트
+	init_no_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	data[0] = init_no_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / EIGHT);
+	for (int i = 1; i < EIGHT; ++i) {
+		data[i] = init_no_atomic_thread_data(&lock, 1000000 + (4000000 / EIGHT * i) + 1, 1000000 + (4000000 / EIGHT * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < EIGHT; ++i) {
+		if (thrd_create(&threads[i], spin_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < EIGHT; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", EIGHT);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
+
+	// 16개의 스레드를 사용한 TASLock 테스트
+	init_no_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	data[0] = init_no_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / SIXTEEN);
+	for (int i = 1; i < SIXTEEN; ++i) {
+		data[i] = init_no_atomic_thread_data(&lock, 1000000 + (4000000 / SIXTEEN * i) + 1, 1000000 + (4000000 / SIXTEEN * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < SIXTEEN; ++i) {
+		if (thrd_create(&threads[i], spin_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < SIXTEEN; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", SIXTEEN);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
+
+	// 32개의 스레드를 사용한 TASLock 테스트
+	init_no_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	data[0] = init_no_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / THIRTYTWO);
+	for (int i = 1; i < THIRTYTWO; ++i) {
+		data[i] = init_no_atomic_thread_data(&lock, 1000000 + (4000000 / THIRTYTWO * i) + 1, 1000000 + (4000000 / THIRTYTWO * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < THIRTYTWO; ++i) {
+		if (thrd_create(&threads[i], spin_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < THIRTYTWO; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", THIRTYTWO);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
+
+	// 64개의 스레드를 사용한 TASLock 테스트
+	init_no_atomic_lock(&lock);
+
+	// 각각의 스레드에 전달할 데이터 설정 
+	data[0] = init_no_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / SIXTYFOUR);
+	for (int i = 1; i < SIXTYFOUR; ++i) {
+		data[i] = init_no_atomic_thread_data(&lock, 1000000 + (4000000 / SIXTYFOUR * i) + 1, 1000000 + (4000000 / SIXTYFOUR * (i + 1)));
+	}
+
+	sum = 0;
+	for (int i = 0; i < SIXTYFOUR; ++i) {
+		if (thrd_create(&threads[i], spin_lock_add, &data[i]) != thrd_success) {
+			printf("Error creating thread 1\n");
+			return;
+		}
+	}
+	start = clock();
+	for (int i = 0; i < SIXTYFOUR; ++i) {
+		thrd_join(threads[i], NULL);
+	}
+	end = clock();
+
+	printf("%d threads\n", SIXTYFOUR);
+	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("TASLock Sum: %llu\n", sum);
 }
 
 void tas_test() {
@@ -136,14 +522,14 @@ void tas_test() {
 	clock_t start;
 	clock_t end;
 	thrd_t threads[SIXTYFOUR];
-	Lock lock;
-	init_lock(&lock);
+	AtomicLock lock;
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	ThreadData data[SIXTYFOUR];
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / TWO);
+	AtomicThreadData data[SIXTYFOUR];
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / TWO);
 	for (int i = 1; i < TWO; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / TWO * i) + 1, 1000000 + (4000000 / TWO * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / TWO * i) + 1, 1000000 + (4000000 / TWO * (i + 1)));
 	}
 
 	sum = 0;
@@ -164,12 +550,12 @@ void tas_test() {
 	printf("TASLock Sum: %llu\n", sum);
 
 	// 4개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / FOUR);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / FOUR);
 	for (int i = 1; i < FOUR; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / FOUR * i) + 1, 1000000 + (4000000 / FOUR * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / FOUR * i) + 1, 1000000 + (4000000 / FOUR * (i + 1)));
 	}
 
 	sum = 0;
@@ -190,12 +576,12 @@ void tas_test() {
 	printf("TASLock Sum: %llu\n", sum);
 
 	// 8개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / EIGHT);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / EIGHT);
 	for (int i = 1; i < EIGHT; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / EIGHT * i) + 1, 1000000 + (4000000 / EIGHT * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / EIGHT * i) + 1, 1000000 + (4000000 / EIGHT * (i + 1)));
 	}
 
 	sum = 0;
@@ -216,12 +602,12 @@ void tas_test() {
 	printf("TASLock Sum: %llu\n", sum);
 
 	// 16개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / SIXTEEN);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / SIXTEEN);
 	for (int i = 1; i < SIXTEEN; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / SIXTEEN * i) + 1, 1000000 + (4000000 / SIXTEEN * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / SIXTEEN * i) + 1, 1000000 + (4000000 / SIXTEEN * (i + 1)));
 	}
 
 	sum = 0;
@@ -242,12 +628,12 @@ void tas_test() {
 	printf("TASLock Sum: %llu\n", sum);
 
 	// 32개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / THIRTYTWO);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / THIRTYTWO);
 	for (int i = 1; i < THIRTYTWO; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / THIRTYTWO * i) + 1, 1000000 + (4000000 / THIRTYTWO * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / THIRTYTWO * i) + 1, 1000000 + (4000000 / THIRTYTWO * (i + 1)));
 	}
 
 	sum = 0;
@@ -268,12 +654,12 @@ void tas_test() {
 	printf("TASLock Sum: %llu\n", sum);
 
 	// 64개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / SIXTYFOUR);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / SIXTYFOUR);
 	for (int i = 1; i < SIXTYFOUR; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / SIXTYFOUR * i) + 1, 1000000 + (4000000 / SIXTYFOUR * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / SIXTYFOUR * i) + 1, 1000000 + (4000000 / SIXTYFOUR * (i + 1)));
 	}
 
 	sum = 0;
@@ -299,14 +685,14 @@ void ttas_test() {
 	clock_t start;
 	clock_t end;
 	thrd_t threads[SIXTYFOUR];
-	Lock lock;
-	init_lock(&lock);
+	AtomicLock lock;
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	ThreadData data[SIXTYFOUR];
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / TWO);
+	AtomicThreadData data[SIXTYFOUR];
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / TWO);
 	for (int i = 1; i < TWO; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / TWO * i) + 1, 1000000 + (4000000 / TWO * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / TWO * i) + 1, 1000000 + (4000000 / TWO * (i + 1)));
 	}
 
 	sum = 0;
@@ -327,12 +713,12 @@ void ttas_test() {
 	printf("TTASLock Sum: %llu\n", sum);
 
 	// 4개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / FOUR);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / FOUR);
 	for (int i = 1; i < FOUR; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / FOUR * i) + 1, 1000000 + (4000000 / FOUR * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / FOUR * i) + 1, 1000000 + (4000000 / FOUR * (i + 1)));
 	}
 
 	sum = 0;
@@ -353,12 +739,12 @@ void ttas_test() {
 	printf("TTASLock Sum: %llu\n", sum);
 
 	// 8개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / EIGHT);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / EIGHT);
 	for (int i = 1; i < EIGHT; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / EIGHT * i) + 1, 1000000 + (4000000 / EIGHT * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / EIGHT * i) + 1, 1000000 + (4000000 / EIGHT * (i + 1)));
 	}
 
 	sum = 0;
@@ -379,12 +765,12 @@ void ttas_test() {
 	printf("TTASLock Sum: %llu\n", sum);
 
 	// 16개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / SIXTEEN);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / SIXTEEN);
 	for (int i = 1; i < SIXTEEN; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / SIXTEEN * i) + 1, 1000000 + (4000000 / SIXTEEN * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / SIXTEEN * i) + 1, 1000000 + (4000000 / SIXTEEN * (i + 1)));
 	}
 
 	sum = 0;
@@ -405,12 +791,12 @@ void ttas_test() {
 	printf("TTASLock Sum: %llu\n", sum);
 
 	// 32개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / THIRTYTWO);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / THIRTYTWO);
 	for (int i = 1; i < THIRTYTWO; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / THIRTYTWO * i) + 1, 1000000 + (4000000 / THIRTYTWO * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / THIRTYTWO * i) + 1, 1000000 + (4000000 / THIRTYTWO * (i + 1)));
 	}
 
 	sum = 0;
@@ -431,12 +817,12 @@ void ttas_test() {
 	printf("TTASLock Sum: %llu\n", sum);
 
 	// 64개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / SIXTYFOUR);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / SIXTYFOUR);
 	for (int i = 1; i < SIXTYFOUR; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / SIXTYFOUR * i) + 1, 1000000 + (4000000 / SIXTYFOUR * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / SIXTYFOUR * i) + 1, 1000000 + (4000000 / SIXTYFOUR * (i + 1)));
 	}
 
 	sum = 0;
@@ -462,14 +848,14 @@ void back_off_test() {
 	clock_t start;
 	clock_t end;
 	thrd_t threads[SIXTYFOUR];
-	Lock lock;
-	init_lock(&lock);
+	AtomicLock lock;
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	ThreadData data[SIXTYFOUR];
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / TWO);
+	AtomicThreadData data[SIXTYFOUR];
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / TWO);
 	for (int i = 1; i < TWO; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / TWO * i) + 1, 1000000 + (4000000 / TWO * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / TWO * i) + 1, 1000000 + (4000000 / TWO * (i + 1)));
 	}
 
 	sum = 0;
@@ -490,12 +876,12 @@ void back_off_test() {
 	printf("TTASLock Sum: %llu\n", sum);
 
 	// 4개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / FOUR);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / FOUR);
 	for (int i = 1; i < FOUR; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / FOUR * i) + 1, 1000000 + (4000000 / FOUR * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / FOUR * i) + 1, 1000000 + (4000000 / FOUR * (i + 1)));
 	}
 
 	sum = 0;
@@ -516,12 +902,12 @@ void back_off_test() {
 	printf("TTASLock Sum: %llu\n", sum);
 
 	// 8개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / EIGHT);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / EIGHT);
 	for (int i = 1; i < EIGHT; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / EIGHT * i) + 1, 1000000 + (4000000 / EIGHT * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / EIGHT * i) + 1, 1000000 + (4000000 / EIGHT * (i + 1)));
 	}
 
 	sum = 0;
@@ -542,12 +928,12 @@ void back_off_test() {
 	printf("TTASLock Sum: %llu\n", sum);
 
 	// 16개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / SIXTEEN);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / SIXTEEN);
 	for (int i = 1; i < SIXTEEN; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / SIXTEEN * i) + 1, 1000000 + (4000000 / SIXTEEN * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / SIXTEEN * i) + 1, 1000000 + (4000000 / SIXTEEN * (i + 1)));
 	}
 
 	sum = 0;
@@ -568,12 +954,12 @@ void back_off_test() {
 	printf("TTASLock Sum: %llu\n", sum);
 
 	// 32개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / THIRTYTWO);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / THIRTYTWO);
 	for (int i = 1; i < THIRTYTWO; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / THIRTYTWO * i) + 1, 1000000 + (4000000 / THIRTYTWO * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / THIRTYTWO * i) + 1, 1000000 + (4000000 / THIRTYTWO * (i + 1)));
 	}
 
 	sum = 0;
@@ -594,12 +980,12 @@ void back_off_test() {
 	printf("TTASLock Sum: %llu\n", sum);
 
 	// 64개의 스레드를 사용한 TASLock 테스트
-	init_lock(&lock);
+	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
-	data[0] = init_ThreadData(&lock, 1000000, 1000000 + 4000000 / SIXTYFOUR);
+	data[0] = init_atomic_thread_data(&lock, 1000000, 1000000 + 4000000 / SIXTYFOUR);
 	for (int i = 1; i < SIXTYFOUR; ++i) {
-		data[i] = init_ThreadData(&lock, 1000000 + (4000000 / SIXTYFOUR * i) + 1, 1000000 + (4000000 / SIXTYFOUR * (i + 1)));
+		data[i] = init_atomic_thread_data(&lock, 1000000 + (4000000 / SIXTYFOUR * i) + 1, 1000000 + (4000000 / SIXTYFOUR * (i + 1)));
 	}
 
 	sum = 0;
@@ -633,18 +1019,16 @@ int main(void) {
 	printf("Single thread time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
 	printf("Sum: %llu\n", sum);
 
-	SYSTEM_INFO sysinfo;
-	GetSystemInfo(&sysinfo);
-	int num_cores = sysinfo.dwNumberOfProcessors; // 현제 컴퓨터의 스레드 수
-	
-	printf("Number of cores: %d\n", num_cores);
-
-	printf("\n===TASLock test===\n");
-	tas_test();
-	printf("\n===TTASLock test===\n");
-	ttas_test();
-	printf("\n===Back-off test===\n");
-	back_off_test();
+    // printf("\n===NoLock test===\n");
+    // no_lock_test();
+    printf("\n===SpinLock test===\n");
+    spin_lock_test();
+	// printf("\n===TASLock test===\n");
+	// tas_test();
+	// printf("\n===TTASLock test===\n");
+	// ttas_test();
+	// printf("\n===Back-off test===\n");
+	// back_off_test();
 
 	return 0;
 }
