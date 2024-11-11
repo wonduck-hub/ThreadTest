@@ -3,6 +3,7 @@
 #include <stdbool.h>
 #include <time.h>
 #include <threads.h>
+#include <windows.h>
 
 #define TWO (2)
 #define FOUR (4)
@@ -106,7 +107,7 @@ void ttas_lock(AtomicLock* lock) {
 }
 
 void back_off_lock(AtomicLock* lock) {
-    int backoff = 20; // 초기 백오프 시간 (밀리초 단위)
+    int backoff_time = 20; // 초기 백오프 시간 (밀리초 단위)
 	while (true) {
 		// 첫 번째 테스트: 상태가 0인지 확인
 		if (atomic_load(&lock->state) == 0) {
@@ -116,15 +117,11 @@ void back_off_lock(AtomicLock* lock) {
 				break; // 락 획득 성공
 			}
 		}
-		// 락 획득 실패 후 일정 시간 대기
 		// 락 획득 실패 후 일정 시간 대기 (지수 백오프)
-		struct timespec ts;
-		ts.tv_sec = backoff / 1000;
-		ts.tv_nsec = (backoff % 1000) * 1000000;
-		nanosleep(&ts, NULL);
-		backoff *= 2; // 백오프 시간 두 배로 증가
-		if (backoff > 1000) { // 최대 백오프 시간 제한 (1초)
-			backoff = 1000;
+		Sleep(backoff_time);
+		backoff_time *= 2; // 백오프 시간 두 배로 증가
+		if (backoff_time > 1000) { // 최대 백오프 시간 제한 (1초)
+			backoff_time = 1000;
 		}
 	}
 }
@@ -1019,16 +1016,16 @@ int main(void) {
 	printf("Single thread time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
 	printf("Sum: %llu\n", sum);
 
-    // printf("\n===NoLock test===\n");
-    // no_lock_test();
+    printf("\n===NoLock test===\n");
+    no_lock_test();
     printf("\n===SpinLock test===\n");
     spin_lock_test();
-	// printf("\n===TASLock test===\n");
-	// tas_test();
-	// printf("\n===TTASLock test===\n");
-	// ttas_test();
-	// printf("\n===Back-off test===\n");
-	// back_off_test();
+	printf("\n===TASLock test===\n");
+	tas_test();
+	printf("\n===TTASLock test===\n");
+	ttas_test();
+	printf("\n===Back-off test===\n");
+	back_off_test();
 
 	return 0;
 }
