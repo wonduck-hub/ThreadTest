@@ -189,7 +189,7 @@ int back_off_add(void* arg) {
 }
 
 void no_lock_test() {
-	// 2개의 스레드를 사용한 TASLock 테스트
+	// 2개의 스레드를 사용한 NoLock 테스트
 	clock_t start;
 	clock_t end;
 	thrd_t threads[SIXTYFOUR];
@@ -217,10 +217,10 @@ void no_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", TWO);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("NoLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("NoLock Sum: %llu\n", sum);
 
-	// 4개의 스레드를 사용한 TASLock 테스트
+	// 4개의 스레드를 사용한 NoLock 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -243,10 +243,10 @@ void no_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", FOUR);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("NoLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("NoLock Sum: %llu\n", sum);
 
-	// 8개의 스레드를 사용한 TASLock 테스트
+	// 8개의 스레드를 사용한 NoLock 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -269,10 +269,10 @@ void no_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", EIGHT);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("NoLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("NoLock Sum: %llu\n", sum);
 
-	// 16개의 스레드를 사용한 TASLock 테스트
+	// 16개의 스레드를 사용한 NoLock 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -295,10 +295,10 @@ void no_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", SIXTEEN);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("NoLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("NoLock Sum: %llu\n", sum);
 
-	// 32개의 스레드를 사용한 TASLock 테스트
+	// 32개의 스레드를 사용한 NoLock 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -321,10 +321,10 @@ void no_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", THIRTYTWO);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("NoLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("NoLock Sum: %llu\n", sum);
 
-	// 64개의 스레드를 사용한 TASLock 테스트
+	// 64개의 스레드를 사용한 NoLock 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -347,12 +347,12 @@ void no_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", SIXTYFOUR);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("NoLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("NoLock Sum: %llu\n", sum);
 }
 
 void spin_lock_test() {
-    // 2개의 스레드를 사용한 TASLock 테스트
+    // 2개의 스레드를 사용한 SpinLock 테스트
 	clock_t start;
 	clock_t end;
 	thrd_t threads[SIXTYFOUR];
@@ -380,10 +380,10 @@ void spin_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", TWO);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("SpinLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("SpinLock Sum: %llu\n", sum);
 
-	// 4개의 스레드를 사용한 TASLock 테스트
+	// 4개의 스레드를 사용한 SpinLock 테스트
 	init_no_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -406,10 +406,10 @@ void spin_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", FOUR);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("SpinLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("SpinLock Sum: %llu\n", sum);
 
-	// 8개의 스레드를 사용한 TASLock 테스트
+	// 8개의 스레드를 사용한 SpinLock 테스트
 	init_no_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -432,10 +432,10 @@ void spin_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", EIGHT);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("SpinLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("SpinLock Sum: %llu\n", sum);
 
-	// 16개의 스레드를 사용한 TASLock 테스트
+	// 16개의 스레드를 사용한 SpinLock 테스트
 	init_no_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -458,10 +458,10 @@ void spin_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", SIXTEEN);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("SpinLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("SpinLock Sum: %llu\n", sum);
 
-	// 32개의 스레드를 사용한 TASLock 테스트
+	// 32개의 스레드를 사용한 SpinLock 테스트
 	init_no_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -484,10 +484,10 @@ void spin_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", THIRTYTWO);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("SpinLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("SpinLock Sum: %llu\n", sum);
 
-	// 64개의 스레드를 사용한 TASLock 테스트
+	// 64개의 스레드를 사용한 SpinLock 테스트
 	init_no_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -510,8 +510,8 @@ void spin_lock_test() {
 	end = clock();
 
 	printf("%d threads\n", SIXTYFOUR);
-	printf("TASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TASLock Sum: %llu\n", sum);
+	printf("SpinLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("SpinLock Sum: %llu\n", sum);
 }
 
 void tas_test() {
@@ -678,7 +678,7 @@ void tas_test() {
 }
 
 void ttas_test() {
-	// 2개의 스레드를 사용한 TASLock 테스트
+	// 2개의 스레드를 사용한 TTASLock 테스트
 	clock_t start;
 	clock_t end;
 	thrd_t threads[SIXTYFOUR];
@@ -709,7 +709,7 @@ void ttas_test() {
 	printf("TTASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
 	printf("TTASLock Sum: %llu\n", sum);
 
-	// 4개의 스레드를 사용한 TASLock 테스트
+	// 4개의 스레드를 사용한 TTASLock 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -761,7 +761,7 @@ void ttas_test() {
 	printf("TTASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
 	printf("TTASLock Sum: %llu\n", sum);
 
-	// 16개의 스레드를 사용한 TASLock 테스트
+	// 16개의 스레드를 사용한 TTASLock 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -787,7 +787,7 @@ void ttas_test() {
 	printf("TTASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
 	printf("TTASLock Sum: %llu\n", sum);
 
-	// 32개의 스레드를 사용한 TASLock 테스트
+	// 32개의 스레드를 사용한 TTASLock 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -813,7 +813,7 @@ void ttas_test() {
 	printf("TTASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
 	printf("TTASLock Sum: %llu\n", sum);
 
-	// 64개의 스레드를 사용한 TASLock 테스트
+	// 64개의 스레드를 사용한 TTASLock 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -841,7 +841,7 @@ void ttas_test() {
 }
 
 void back_off_test() {
-	// 2개의 스레드를 사용한 TASLock 테스트
+	// 2개의 스레드를 사용한 Backoff 테스트
 	clock_t start;
 	clock_t end;
 	thrd_t threads[SIXTYFOUR];
@@ -869,10 +869,10 @@ void back_off_test() {
 	end = clock();
 
 	printf("%d threads\n", TWO);
-	printf("TTASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TTASLock Sum: %llu\n", sum);
+	printf("Backoff Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("Backoff Sum: %llu\n", sum);
 
-	// 4개의 스레드를 사용한 TASLock 테스트
+	// 4개의 스레드를 사용한 Backoff 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -895,10 +895,10 @@ void back_off_test() {
 	end = clock();
 
 	printf("%d threads\n", FOUR);
-	printf("TTASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TTASLock Sum: %llu\n", sum);
+	printf("Backoff Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("Backoff Sum: %llu\n", sum);
 
-	// 8개의 스레드를 사용한 TASLock 테스트
+	// 8개의 스레드를 사용한 Backoff 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -921,10 +921,10 @@ void back_off_test() {
 	end = clock();
 
 	printf("%d threads\n", EIGHT);
-	printf("TTASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TTASLock Sum: %llu\n", sum);
+	printf("Backoff Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("Backoff Sum: %llu\n", sum);
 
-	// 16개의 스레드를 사용한 TASLock 테스트
+	// 16개의 스레드를 사용한 Backoff 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -947,10 +947,10 @@ void back_off_test() {
 	end = clock();
 
 	printf("%d threads\n", SIXTEEN);
-	printf("TTASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TTASLock Sum: %llu\n", sum);
+	printf("Backoff Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("Backoff Sum: %llu\n", sum);
 
-	// 32개의 스레드를 사용한 TASLock 테스트
+	// 32개의 스레드를 사용한 Backoff 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -973,10 +973,10 @@ void back_off_test() {
 	end = clock();
 
 	printf("%d threads\n", THIRTYTWO);
-	printf("TTASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TTASLock Sum: %llu\n", sum);
+	printf("Backoff Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("Backoff Sum: %llu\n", sum);
 
-	// 64개의 스레드를 사용한 TASLock 테스트
+	// 64개의 스레드를 사용한 Backoff 테스트
 	init_atomic_lock(&lock);
 
 	// 각각의 스레드에 전달할 데이터 설정 
@@ -999,8 +999,8 @@ void back_off_test() {
 	end = clock();
 
 	printf("%d threads\n", SIXTYFOUR);
-	printf("TTASLock Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
-	printf("TTASLock Sum: %llu\n", sum);
+	printf("Backoff Time: %f\n", (double)(end - start) / CLOCKS_PER_SEC);
+	printf("Backoff Sum: %llu\n", sum);
 }
 
 int main(void) {
